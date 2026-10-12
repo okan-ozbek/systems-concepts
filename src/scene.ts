@@ -166,7 +166,13 @@ export class HardwareScene {
     const {width,height}=this.container.getBoundingClientRect();if(!width||!height)return;
     const oldAspect=this.camera.aspect;this.camera.aspect=width/height;this.camera.updateProjectionMatrix();this.renderer.setSize(width,height);
     this.pathMaterial.resolution.set(width,height);
-    if((oldAspect<.9)!==(this.camera.aspect<.9)||oldAspect===1)this.resetCamera();
+    if(document.body.classList.contains('lab-mode')&&oldAspect!==1){
+      // Keep the board framed as the IDE divider moves, retaining the user's
+      // orbit, pan, and relative zoom instead of resetting the camera mid-drag.
+      const fit=this.closeView?.95:.9;
+      const ratio=Math.max(1,fit/this.camera.aspect)/Math.max(1,fit/oldAspect);
+      this.camera.position.sub(this.controls.target).multiplyScalar(ratio).add(this.controls.target);this.controls.update();
+    }else if((oldAspect<.9)!==(this.camera.aspect<.9)||oldAspect===1)this.resetCamera();
   }
   setArchitecture(arch:Architecture){
     this.arch=arch;this.remoteGroup.visible=arch==='numa';
