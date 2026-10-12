@@ -1,0 +1,35 @@
+name: reverse-proxy
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  proxy:
+    external: true
+    name: pixelware-proxy
+
+volumes:
+  caddy_data:
+    external: true
+    name: oo-portfolio_caddy_data
+  caddy_config:
+    external: true
+    name: oo-portfolio_caddy_config

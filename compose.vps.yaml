@@ -11,4 +11,4 @@ services:
 networks:
   proxy:
     external: true
-    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to the existing NGINX Docker network}
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to the shared Caddy or NGINX Docker network}

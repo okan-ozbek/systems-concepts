@@ -1,4 +1,42 @@
-# VPS deployment behind an existing Docker NGINX proxy
+# VPS deployment and HTTPS
+
+## Current Pixelware VPS setup
+
+The migration completed on 12 October 2026. A separate Caddy stack at `/var/www/reverse-proxy` owns public ports 80/443 and manages HTTPS automatically. The portfolio at `/var/www/oo-portfolio` and this application at `/var/www/cpp-systems-concepts` keep separate Compose stacks and use the external Docker network `pixelware-proxy`.
+
+The public routes are:
+
+- `https://pixelware.nl` -> `portfolio-web:8080`
+- `https://www.pixelware.nl` -> redirects to `https://pixelware.nl`
+- `https://systems.pixelware.nl` -> `systems-concepts-web:80`
+- `https://www.systems.pixelware.nl` -> redirects to `https://systems.pixelware.nl`
+
+On the VPS, this project's `.env` contains:
+
+```dotenv
+COMPOSE_FILE=compose.vps.yaml
+COMPOSE_PROJECT_NAME=systems-concepts
+PROXY_NETWORK=pixelware-proxy
+```
+
+The same settings are supplied in `.env.vps.example`. Use that file as `.env` on the VPS. Local Docker startup uses the root `compose.yaml` and serves `http://localhost:8080`.
+
+The current shared proxy [Compose file](deploy/reverse-proxy/compose.yaml) and [Caddyfile](deploy/reverse-proxy/Caddyfile) are also saved in this repository, including both `www` redirects. The proxy runs independently from the app. Systems Concepts uses the same bundled Pixelware SVG favicon as the portfolio.
+
+To update this app:
+
+```sh
+cd /var/www/cpp-systems-concepts
+sudo docker compose up --build -d
+```
+
+Caddy runs independently and normally needs no changes when an app is updated. Its configuration, operational README, migration report, and rollback script are in `/var/www/reverse-proxy`. The existing external certificate volumes were preserved. Caddy obtained Let's Encrypt certificates for both systems hostnames and renews them automatically; no Certbot setup is needed here.
+
+See [the migration report](deploy/VPS-MIGRATION-REPORT.md) for the files changed, validation, backups, and recovery commands.
+
+## Alternative setup: existing Docker NGINX proxy with Certbot
+
+The following instructions are for a different hosting arrangement. They are not needed for the current Caddy VPS deployment.
 
 The existing public NGINX proxy owns ports 80 and 443 and selects the site by hostname. It forwards this site to `systems-concepts-web:80` on a shared Docker network. TLS terminates at the proxy. The app's internal NGINX remains an HTTP static-file server.
 

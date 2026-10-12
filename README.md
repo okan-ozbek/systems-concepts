@@ -20,7 +20,7 @@ Open **http://localhost:8080**. Stop with `docker compose down`.
 
 The multi-stage Dockerfile builds the TypeScript/Vite application and serves the static output using Nginx. No backend, account, API key, or database is needed. Port 8080 is configurable in `compose.yaml`.
 
-For a VPS with an existing Docker NGINX reverse proxy, see [VPS deployment and HTTPS](DEPLOYMENT.md). The standalone `compose.vps.yaml` connects the app to the existing proxy network without publishing another host port.
+The VPS deployment at [systems.pixelware.nl](https://systems.pixelware.nl) uses a separate shared Caddy stack for HTTPS. See [VPS deployment and HTTPS](DEPLOYMENT.md) and the [migration report](deploy/VPS-MIGRATION-REPORT.md). The standalone `compose.vps.yaml` connects the app to the proxy network without publishing another host port.
 
 ## Run locally
 

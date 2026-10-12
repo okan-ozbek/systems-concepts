@@ -1,0 +1,19 @@
+{
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+pixelware.nl {
+	reverse_proxy portfolio-web:8080
+}
+
+systems.pixelware.nl {
+	reverse_proxy systems-concepts-web:80
+}
+
+www.systems.pixelware.nl {
+	redir https://systems.pixelware.nl{uri} permanent
+}
+
+www.pixelware.nl {
+	redir https://pixelware.nl{uri} permanent
+}
