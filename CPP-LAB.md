@@ -51,18 +51,55 @@ the output. Playback navigates immutable snapshots; stepping backward does not
 reverse or re-execute the program. Blank lines/comments are skipped; multi-line
 statements are identified by their starting line.
 
-The Three.js routes explain a source-level interpretation: arithmetic through
-the ALU, indexed reads and pointer-member reads through the memory hierarchy,
-control flow through the core, and I/O toward a peripheral. Memory reads show
-an illustrative cache-miss request to DRAM and data returning to the core.
-Stores end at L1: a dirty cache line may be written back later, rather than
-every store immediately going to DRAM. `new` shows a possible memory request
-for heap allocation; constructors are not stepped into. The route classifier
-uses statement text, with comments and literals removed, not measured memory
-accesses. It is approximate for complex or multi-line statements and does not
-inspect pointer targets or object fields. They do **not** capture machine instructions,
-register allocation, cache traffic, timing, or real cache hits. No fabricated
-cycle counters are added to this mode.
+Clang's AST also wraps evaluated array/vector subscripts, `at`/`front`/`back`,
+pointer dereferences, fields, and reference aliases in `main`. Each supported
+access reports its actual WASM address, byte size, source expression/line, and
+read/write/read-modify-write mode. Index/base side effects execute once; binding
+a reference or taking `sizeof` does not become a fictitious load. Access hooks
+preserve the lvalue and const/volatile qualifiers. Return-expression accesses
+are retained on the return checkpoint. A condition's evaluated accesses can
+appear with the following scope/statement checkpoint; their own source line is
+shown in the ordered access list.
+
+The Three.js memory routes now come from a **stateful data-cache simulation**,
+rather than assuming every memory-looking statement misses to DRAM:
+
+- 64-byte aligned lines; L1 32 KiB / 8-way, L2 256 KiB / 8-way,
+  L3 8 MiB / 16-way; per-set LRU replacement, inclusive hierarchy, one core.
+- A cold demand fetch fills the whole line. Neighboring elements reuse it;
+  actual buffer alignment determines the element grouping. This models the
+  contiguous storage required for numeric vectors by the
+  [C++ vector specification](https://eel.is/c++draft/vector.overview).
+- Write-allocate stores fetch a missing line and mark its L1 copy dirty.
+  Eviction moves modified data down the hierarchy; an L3 writeback reaches DRAM.
+  A store is not automatically an immediate DRAM write. These are documented
+  cache principles, with an explicit simplified profile; see the
+  [Intel optimization manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel64-and-ia32-architectures-optimization.html).
+- Numeric buffer initialization and library changes are inferred from snapshots
+  and labeled separately from captured accesses. Initialization warms the cache,
+  so a small freshly constructed vector's scan normally hits L1 in this model.
+  Preserved data in a relocated vector produces an inferred copy; ownership
+  transfers between watched vectors do not invent element copies.
+- Instrumentation's own snapshot reads are excluded. Scalar locals are shown as
+  conceptual registers; their loads/stores and vector-object metadata are not
+  included in the buffer/field access simulation. Helper/library/allocator and
+  constructor internals are not traced. Changed snapshots cannot reveal library
+  reads or stores that leave values unchanged. No traffic is invented for an
+  unsupported access or `new` alone.
+- Playback precomputes immutable cache results once per run. Seeking backward,
+  replaying, or pausing does not warm the caches again. Up to 50,000 captured
+  access events and 50,000 simulated line lookups are allowed. If the simulation
+  budget is exceeded, prediction stops explicitly while captured values remain.
+
+The runner shows the aligned line, highlighted element bytes, modeled hit/fill
+counts, and an ordered list of accesses and writebacks. For a statement with
+multiple accesses, the animation highlights the furthest explicit demand;
+inferred initialization is animated when there is no explicit access.
+Native compiler optimization, host physical addresses, instruction caches,
+prefetching, speculative/out-of-order execution, TLB behavior, coherence between
+cores, timing, and **actual host cache hits** are not measured. No fabricated
+cycle counters are added. Optimized native C++ may vectorize or eliminate loads,
+so this source-level wasm32 model cannot predict an exact native instruction trace.
 
 ## First-version boundaries
 
@@ -117,6 +154,11 @@ npm run test:cpp
 The integration command uses the running compiler and the built browser worker.
 It checks arithmetic, line attribution, arrays/loops, vectors, branches, input,
 floats, scope/shadowing, helper calls, break/continue, diagnostics, and budgets.
+It also verifies evaluated addresses, side effects, nested subscripts, reference
+aliases, return accesses, and real vector iteration through the same cache replay
+used by the UI. Unit tests check line reuse/alignment, initialization, conflict
+eviction, LRU, L2/L3 hits, dirty writebacks, relocation/ownership, seeking, and
+clear animation paths in normal and exploded motherboard views.
 To target another approved instance, set `CPP_LAB_URL` before running it.
 For a batch of local tests, set `CPP_LAB_DIRECT=1` to call the same API through
 `docker compose exec`, avoiding the interactive NGINX rate limit. In PowerShell:

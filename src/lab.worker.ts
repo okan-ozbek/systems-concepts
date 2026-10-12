@@ -1,10 +1,12 @@
-import type { LabResult, TraceMoment, WatchValue } from './lab-types';
+import type { LabResult, MemoryAccess, TraceMoment, WatchValue } from './lab-types';
 
 // The program receives only these memory-based imports: no filesystem, network,
 // eval, browser DOM, environment secrets, or host process capabilities.
 self.onmessage=async(event:MessageEvent<{wasm:ArrayBuffer;stdin:string}>)=>{
   const moments:TraceMoment[]=[];let output='';let inputOffset=0;let exitCode:number|null=null;
   let instance:WebAssembly.Instance;let current:TraceMoment|null=null;
+  let pending:MemoryAccess[]=[];let accessCount=0;
+  const flushPending=()=>{if(current)current.accesses?.push(...pending);pending=[];};
   const decoder=new TextDecoder();const streamDecoder=new TextDecoder();const input=new TextEncoder().encode(event.data.stdin);
   const memory=()=>instance.exports.memory as WebAssembly.Memory;
   const view=()=>new DataView(memory().buffer);
@@ -57,9 +59,13 @@ self.onmessage=async(event:MessageEvent<{wasm:ArrayBuffer;stdin:string}>)=>{
       lab:{
         checkpoint:(line:number,phase:number)=>{
           if(moments.length>=400)throw new Error('Trace limit reached (400 checkpoints). Use a smaller loop.');
-          current={line,phase:phase===2?'entry':phase===1?'after':'before',variables:[],output};moments.push(current);
+          current={line,phase:phase===2?'entry':phase===1?'after':'before',variables:[],output,accesses:pending};pending=[];moments.push(current);
         },
-        watch:(namePtr:number,ptr:number,bytes:number,elementBytes:number,kind:number)=>{
+        access:(address:number,bytes:number,line:number,mode:number,expression:number)=>{
+          if(++accessCount>50000)throw new Error('Memory access limit reached (50,000 accesses). Use a smaller program.');
+          pending.push({address:address>>>0,bytes,line,mode:mode===2?'readwrite':mode===1?'write':'read',expression:text(expression)});
+        },
+        watch:(namePtr:number,ptr:number,bytes:number,elementBytes:number,kind:number,storage:number)=>{
           if(!current||current.variables.length>=32)return;
           const count=Math.min(32,Math.floor(bytes/elementBytes));const values:string[]=[];
           for(let i=0;i<count;i++){
@@ -71,7 +77,7 @@ self.onmessage=async(event:MessageEvent<{wasm:ArrayBuffer;stdin:string}>)=>{
             else value=kind===1?data.getInt8(offset):data.getUint8(offset);
             values.push(String(value));
           }
-          const value:WatchValue={name:text(namePtr),address:ptr,bytes,elementBytes,kind,values,truncated:bytes/elementBytes>count};
+          const value:WatchValue={name:text(namePtr),address:ptr>>>0,bytes,elementBytes,kind,values,truncated:bytes/elementBytes>count,storage:storage===2?'vector':storage===1?'array':'scalar'};
           current.variables.push(value);
         }
       }
@@ -80,11 +86,15 @@ self.onmessage=async(event:MessageEvent<{wasm:ArrayBuffer;stdin:string}>)=>{
   }catch(error){
     if(error instanceof Exit)exitCode=error.code;
     else{
+      flushPending();
       const result:LabResult={moments,output,exitCode,error:error instanceof Error?error.message:String(error)};
       self.postMessage(result);return;
     }
   }
   output+=streamDecoder.decode();
+  // Return expressions execute after their before checkpoint; retain their
+  // accesses on that checkpoint, before the scope disappears at program end.
+  flushPending();
   moments.push({line:0,phase:'end',variables:[],output});
   const result:LabResult={moments,output,exitCode};self.postMessage(result);
 };

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { buildATXBoard } from './board';
 import { componentPorts, createTransferRoute, hardwareBounds, routeRadius } from './routing';
 import { lessons, type Architecture } from './lessons';
-import { explainMoment } from './lab-model';
+import { accessRoute, type CacheAccess, type CacheLevel } from './lab-cache';
 
 it('keeps every lesson transfer outside the hardware in normal and exploded views',()=>{
   const scene=new THREE.Scene();const {nodes,remote}=buildATXBoard(scene);
@@ -19,8 +19,10 @@ it('keeps every lesson transfer outside the hardware in normal and exploded view
     scene.updateMatrixWorld(true);
     const bounds=hardwareBounds(meshes);const occupied=bounds.map(box=>box.clone().expandByScalar(routeRadius));
     const routes=new Map(lessons.flatMap(lesson=>[0,1].flatMap(variant=>lesson.steps(variant,arch).map(step=>[step.route.join('/'),step.route] as const))));
-    const labRead=explainMoment({line:1,phase:'after',variables:[],output:''},'std::cout << curr->value;').route;
-    routes.set(labRead.join('/'),labRead);
+    for(const servedBy of ['L1','L2','L3','DRAM'] as CacheLevel[])for(const mode of ['read','write','readwrite'] as const){
+      const access:CacheAccess={address:0,bytes:4,lineBase:0,line:1,mode,expression:'v[i]',servedBy,dirty:mode!=='read',writebacks:[{lineBase:64,from:'L1',to:'L2'},{lineBase:128,from:'L3',to:'DRAM'}]};
+      const route=accessRoute(access);routes.set(route.join('/'),route);
+    }
     for(const [name,route] of routes){
       if(!route.length)continue;
       const ports=componentPorts(nodes,route);const curve=createTransferRoute(ports,bounds);

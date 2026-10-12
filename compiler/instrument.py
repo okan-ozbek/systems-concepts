@@ -41,6 +41,7 @@ def instrument(source, body):
     raw = source.encode('utf-8')
     edits = {}
     count = 0
+    accesses = {}
 
     def position(node, side):
         loc = node['range'][side]
@@ -50,6 +51,52 @@ def instrument(source, body):
 
     def line(offset):
         return raw[:offset].count(b'\n') + 1
+
+    def unwrap(node):
+        while node.get('kind') in ('ParenExpr', 'ImplicitCastExpr', 'ExprWithCleanups') and node.get('inner'):
+            node = node['inner'][0]
+        return node
+
+    def memory_lvalue(node):
+        node = unwrap(node)
+        kind = node.get('kind')
+        if node.get('valueCategory') != 'lvalue':
+            return None
+        if kind == 'DeclRefExpr' and '&' in node.get('referencedDecl', {}).get('type', {}).get('qualType', ''):
+            return node
+        if kind in ('ArraySubscriptExpr', 'MemberExpr') or (kind == 'UnaryOperator' and node.get('opcode') == '*'):
+            return node
+        if kind == 'CXXOperatorCallExpr':
+            callee = unwrap(node['inner'][0])
+            if callee.get('referencedDecl', {}).get('name') == 'operator[]':
+                return node
+        if kind == 'CXXMemberCallExpr' and node.get('inner', [{}])[0].get('name') in ('at', 'front', 'back'):
+            return node
+        return None
+
+    def record_access(node, mode):
+        target = memory_lvalue(node)
+        if not target:
+            return
+        begin, end = position(target, 'begin'), position(target, 'end')
+        key = (begin, end)
+        accesses[key] = mode if key not in accesses else max(mode, accesses[key])
+
+    def walk_accesses(node):
+        kind = node.get('kind')
+        # Never evaluate unevaluated operands, implicit library bodies, lambdas,
+        # or constexpr initializers as a side effect of source tracing.
+        if kind in ('UnaryExprOrTypeTraitExpr', 'CXXNoexceptExpr', 'CXXTypeidExpr', 'LambdaExpr') or node.get('constexpr'):
+            return
+        children = node.get('inner', [])
+        if kind == 'ImplicitCastExpr' and node.get('castKind') == 'LValueToRValue':
+            record_access(children[0], 0)
+        elif kind in ('BinaryOperator', 'CompoundAssignOperator') and node.get('opcode') in ('=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='):
+            record_access(children[0], 1 if node['opcode'] == '=' else 2)
+        elif kind == 'UnaryOperator' and node.get('opcode') in ('++', '--'):
+            record_access(children[0], 2)
+        for child in children:
+            walk_accesses(child)
 
     def checkpoint(offset, line_number, variables, phase=0):
         nonlocal count
@@ -118,6 +165,13 @@ def instrument(source, body):
                 raise ValueError(f'{kind} is not supported by statement tracing yet.')
 
     block(body, [])
+    walk_accesses(body)
+    # Wrapping the evaluated lvalue preserves its reference and evaluates the
+    # index/base exactly once. Nested expressions retain the original order.
+    for (begin, end), mode in sorted(accesses.items(), key=lambda item: (item[0][0], -item[0][1])):
+        expression = raw[begin:end].decode('utf-8')[:128]
+        edits.setdefault(begin, []).append(b'__lab_access((')
+        edits.setdefault(end, []).insert(0, f'),{line(begin)},{mode},{json.dumps(expression, ensure_ascii=False)})'.encode())
     for offset in sorted(edits, reverse=True):
         raw = raw[:offset] + b''.join(edits[offset]) + raw[offset:]
     return '#include "/app/trace.hpp"\n#line 1 "main.cpp"\n' + raw.decode('utf-8'), count

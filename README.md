@@ -41,7 +41,7 @@ npm run preview
 
 ## Experimental C++ mode
 
-Choose **C++ Lab** in the header to edit C++20, compile it with Clang, and replay statement checkpoints beside the motherboard. Variables, numeric arrays/vectors, input, output, and exit status come from the compiled WebAssembly run. Hardware routes remain illustrative. See [C++ Lab](CPP-LAB.md) for the supported scope and isolation design. For Vite development, keep Docker running so the API proxy can reach the compiler.
+Choose **C++ Lab** in the header to edit C++20, compile it with Clang, and replay statement checkpoints beside the motherboard. Variables, numeric arrays/vectors, input, output, and supported buffer/field access addresses come from the compiled WebAssembly run. A persistent 64-byte-line cache simulation shows L1/L2/L3 hits, DRAM fills, write allocation, and dirty evictions. Initialization is included, so nearby vector elements reuse a resident line. The runner separates captured addresses from inferred library stores and simulated cache outcomes. See [C++ Lab](CPP-LAB.md) for the model profile, supported scope, and isolation design. For Vite development, keep Docker running so the API proxy can reach the compiler.
 
 ## Explore
 

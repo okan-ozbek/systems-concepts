@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import {readFile,readdir} from 'node:fs/promises';
 import {Worker} from 'node:worker_threads';
 import {spawn} from 'node:child_process';
+import {transpileModule,ModuleKind,ScriptTarget} from 'typescript';
+// Exercise the same pure cache replay used by the UI against real address events.
+const toModule=source=>transpileModule(source,{compilerOptions:{module:ModuleKind.ES2022,target:ScriptTarget.ES2022}}).outputText;
+const asUrl=source=>`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const fallbackUrl=asUrl(toModule(await readFile('src/lab-model.ts','utf8')));
+const {modelTrace}=await import(asUrl(toModule(await readFile('src/lab-cache.ts','utf8')).replace("from './lab-model'",`from '${fallbackUrl}'`)));
 const base=process.env.CPP_LAB_URL??'http://localhost:8080';
 const workerFile=(await readdir('dist/assets')).find(name=>name.startsWith('lab.worker-')&&name.endsWith('.js'));
 assert.ok(workerFile,'Run npm run build first.');
@@ -75,6 +81,35 @@ await test('numeric vector and std::array expose real buffer values',async()=>{
   assert.equal(result.error,undefined);assert.equal(result.exitCode,9);
   assert.ok(values(result,'v').some(v=>JSON.stringify(v)==='["1","9","3","7"]'));
   assert.deepEqual(values(result,'a')[0],['2.5','4']);
+});
+await test('vector access hooks capture real addresses, sizes, writes, and a return expression',async()=>{
+  const result=await execute('#include <vector>\nint main(){\nstd::vector<int> v{1,2,3};\nint i=0;\nint x=v[i++];\nv[1]=x+8;\nv[2]+=1;\nint y=v.at(0);\nreturn v[1];\n}');
+  assert.equal(result.error,undefined);assert.equal(result.exitCode,9);
+  assert.ok(values(result,'i').every(v=>v[0]==='0'||v[0]==='1'),'Index side effect executes once.');
+  assert.equal(values(result,'i').at(-1)[0],'1');
+  const v=result.moments.flatMap(m=>m.variables).find(v=>v.name==='v');assert.equal(v.storage,'vector');
+  const accesses=result.moments.flatMap(m=>m.accesses??[]);
+  assert.deepEqual(accesses.map(a=>[a.line,a.address-v.address,a.bytes,a.mode]),[[5,0,4,'read'],[6,4,4,'write'],[7,8,4,'readwrite'],[8,0,4,'read'],[9,4,4,'read']]);
+});
+await test('real vector iteration reuses initialized lines, including elements beyond the snapshot window',async()=>{
+  const source='#include <vector>\n#include <cstdio>\nint main(){\nstd::vector<int> v(64,3);\nint sum=0;\nfor(int i=0;i<64;++i){\nsum+=v[i];\n}\nprintf("%d",sum);\nreturn 0;\n}';
+  const result=await execute(source);assert.equal(result.error,undefined);assert.equal(result.output,'192');
+  const modeled=modelTrace(result.moments,source);const reads=modeled.flatMap(m=>m.accesses).filter(a=>!a.inferred&&a.expression==='v[i]');
+  assert.equal(reads.length,64);assert.ok(reads.every(a=>a.servedBy==='L1'));
+  assert.equal(new Set(reads.map(a=>a.lineBase)).size,Math.ceil((reads[0].address%64+64*4)/64));
+  const initialized=modeled.find(m=>m.accesses.some(a=>a.inferred&&a.mode==='write'));
+  assert.equal(modeled.at(-1).stats.dram,initialized.stats.dram,'No additional DRAM fills during this scan.');
+});
+await test('nested subscripts and multiple operands preserve evaluation and program output',async()=>{
+  const result=await execute('#include <cstdio>\nint main(){int a[3]={2,0,1};int b[3]={10,20,30};int i=0;int x=b[a[i++]];b[a[1]]=b[2]+b[1];printf("%d %d %d",x,b[0],i);return 0;}');
+  assert.equal(result.error,undefined);assert.equal(result.output,'30 50 1');
+  assert.ok(result.moments.flatMap(m=>m.accesses??[]).some(a=>a.expression==='a[i++]'));
+});
+await test('unevaluated expressions and references do not fabricate memory reads',async()=>{
+  const result=await execute('int main(){int a[2]={7,8};int i=0;int size=sizeof(a[i++]);int& r=a[0];r=9;return i;}');
+  assert.equal(result.error,undefined);assert.equal(result.exitCode,0);
+  const accesses=result.moments.flatMap(m=>m.accesses??[]);assert.equal(accesses.length,1);
+  assert.equal(accesses[0].expression,'r');assert.equal(accesses[0].mode,'write');
 });
 await test('stdin and float values',async()=>{
   const result=await execute('#include <iostream>\nint main(){double x=0;std::cin>>x;x*=2;std::cout<<x;return 0;}','2.75');

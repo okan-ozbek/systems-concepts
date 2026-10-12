@@ -1,9 +1,8 @@
-import type { NodeId, Step } from './lessons';
+import type { Step } from './lessons';
 import type { TraceMoment } from './lab-types';
 
-// These routes are illustrative interpretations of source statements, not
-// measured instructions, register allocation, cache hits, or physical addresses.
-const memoryRead:NodeId[]=['reg0','l10','l20','l3','dram','l3','l20','l10','reg0'];
+// Fallback for statements without address events. Never invent a cache miss;
+// lab-cache.ts derives memory routes by replaying captured accesses in order.
 
 // Strip literals/comments before interpreting the statement so e.g. printing
 // "new node->value" does not become a heap access. This is a teaching heuristic,
@@ -25,8 +24,7 @@ export function explainMoment(moment:TraceMoment, source:string):Step {
     const target='(?:\\b\\w+(?:\\s*->\\s*\\w+|\\s*\\[[^\\]]+\\])+)' ;
     const store=new RegExp(`${target}\\s*(?:[+*/%&|^-]=|=(?!=)|\\+\\+|--)|(?:\\+\\+|--)\\s*${target}`).test(code);
     const io=/(?:cout|printf|puts|cin|scanf)\b/.test(code);
-    if(store&&!/\b(?:if|for|while)\s*\(/.test(code))return {title,detail:'Store illustration: update a cache line in L1. A dirty line may be written back toward DRAM later; this checkpoint does not prove a DRAM write. Cache traffic is modeled.',route:['reg0','l10'],signal:'data'};
-    return {title,detail:allocation?'Heap allocation illustration: the allocator supplies storage and the constructor initializes it. The route shows a possible cache-miss request and data return, not measured allocation or DRAM traffic. Object fields and pointers are not captured yet.':'Memory read illustration: a request travels from the core toward DRAM, then data returns through the caches. This assumes a miss throughout the cache hierarchy; an actual access may hit in cache. Cache traffic is modeled.',route:io?[...memoryRead,'io']:memoryRead,signal:'data'};
+    return {title,detail:allocation?'Allocation executes in the compiled program. Allocator and constructor internals are not instrumented, so this checkpoint makes no claim about their cache or DRAM traffic. Numeric vector buffer initialization is modeled separately from snapshots.':`${store?'Store':'Memory access'}: no supported address event was captured at this checkpoint. Cache residency cannot be determined from source text alone.`,route:io?['reg0','io']:['reg0'],signal:'data'};
   }
   if(/(?:cout|printf|puts|cin|scanf)\b/.test(code))return {title,detail:'I/O illustration: the core exchanges data with an output or input device. The console below contains actual program output.',route:['reg0','io'],signal:'data'};
   if(/\b(?:if|for|while)\s*\(/.test(code))return {title,detail:'Control-flow illustration: a comparison determines which instructions execute next. This checkpoint captures the actual path taken.',route:['reg0','alu','reg0'],signal:'compute'};
