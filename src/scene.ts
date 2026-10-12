@@ -54,7 +54,7 @@ export class HardwareScene {
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
     this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-    this.renderer.setClearColor(0x17241d,0);this.renderer.outputColorSpace=THREE.SRGBColorSpace;
+    this.renderer.setClearColor(0x17181b,0);this.renderer.outputColorSpace=THREE.SRGBColorSpace;
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.25;
     this.renderer.domElement.setAttribute('aria-label','Interactive ATX motherboard. Left-drag to orbit, right-drag to move, scroll to zoom, hover to identify components, or click the CPU and memory units to inspect.');
     this.container.append(this.renderer.domElement);
@@ -62,8 +62,8 @@ export class HardwareScene {
     this.controls.enableDamping=true;this.controls.minDistance=6;this.controls.maxDistance=100;
     this.controls.maxPolarAngle=Math.PI/2.12;this.controls.enablePan=true;this.controls.screenSpacePanning=true;
     this.controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.PAN};
-    this.scene.add(new THREE.HemisphereLight(0xe5f5ec,0x1a2c26,2.4));
-    const sun=new THREE.DirectionalLight(0xfff5de,3.2);sun.position.set(-8,18,9);sun.castShadow=true;
+    this.scene.add(new THREE.HemisphereLight(0xe7eaf1,0x171922,2.4));
+    const sun=new THREE.DirectionalLight(0xf3f1ec,3.2);sun.position.set(-8,18,9);sun.castShadow=true;
     sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-15;sun.shadow.camera.right=15;
     sun.shadow.camera.top=15;sun.shadow.camera.bottom=-15;sun.shadow.normalBias=.025;this.scene.add(sun);
     const rim=new THREE.DirectionalLight(0x95b7bc,2);rim.position.set(7,7,-9);this.scene.add(rim);
@@ -102,7 +102,7 @@ export class HardwareScene {
       this.flow.add(particle);this.particles.push(particle);
     }
     this.scene.add(this.flow);
-    this.hoverOutline=new THREE.BoxHelper(new THREE.Object3D(),0xc7d6cd);this.hoverOutline.visible=false;
+    this.hoverOutline=new THREE.BoxHelper(new THREE.Object3D(),0xcbd1dc);this.hoverOutline.visible=false;
     (this.hoverOutline.material as THREE.LineBasicMaterial).transparent=true;(this.hoverOutline.material as THREE.LineBasicMaterial).opacity=.4;
     this.scene.add(this.hoverOutline);
     this.tooltip=document.createElement('div');this.tooltip.id='hardware-tooltip';this.tooltip.className='hardware-tooltip';
