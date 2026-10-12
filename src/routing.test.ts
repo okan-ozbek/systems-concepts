@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { buildATXBoard } from './board';
 import { componentPorts, createTransferRoute, hardwareBounds, routeRadius } from './routing';
 import { lessons, type Architecture } from './lessons';
+import { explainMoment } from './lab-model';
 
 it('keeps every lesson transfer outside the hardware in normal and exploded views',()=>{
   const scene=new THREE.Scene();const {nodes,remote}=buildATXBoard(scene);
@@ -18,6 +19,8 @@ it('keeps every lesson transfer outside the hardware in normal and exploded view
     scene.updateMatrixWorld(true);
     const bounds=hardwareBounds(meshes);const occupied=bounds.map(box=>box.clone().expandByScalar(routeRadius));
     const routes=new Map(lessons.flatMap(lesson=>[0,1].flatMap(variant=>lesson.steps(variant,arch).map(step=>[step.route.join('/'),step.route] as const))));
+    const labRead=explainMoment({line:1,phase:'after',variables:[],output:''},'std::cout << curr->value;').route;
+    routes.set(labRead.join('/'),labRead);
     for(const [name,route] of routes){
       if(!route.length)continue;
       const ports=componentPorts(nodes,route);const curve=createTransferRoute(ports,bounds);

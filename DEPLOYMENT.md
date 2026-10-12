@@ -25,6 +25,13 @@ The current shared proxy [Compose file](deploy/reverse-proxy/compose.yaml) and [
 
 To update this app:
 
+The experimental C++ Lab also adds a compile-only `cpp-compiler` service on a
+private internal Docker network. The web container exposes its bounded API
+through `/api/cpp/`; it compiles to WebAssembly, which executes in the visitor's
+browser. This mode is currently tested locally and has not been deployed to the
+VPS. See [the C++ Lab notes](CPP-LAB.md) before enabling it publicly. Updating with
+the new Compose file will build and start the compiler along with the web app.
+
 ```sh
 cd /var/www/cpp-systems-concepts
 sudo docker compose up --build -d

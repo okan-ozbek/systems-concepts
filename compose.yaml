@@ -4,3 +4,25 @@ services:
     ports:
       - "127.0.0.1:8080:80"
     restart: unless-stopped
+    networks: [default, compiler]
+  cpp-compiler:
+    build:
+      context: .
+      dockerfile: compiler/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=96m,mode=1777,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 64
+    networks: [compiler]
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health')"]
+      interval: 30s
+      timeout: 3s
+networks:
+  compiler:
+    internal: true

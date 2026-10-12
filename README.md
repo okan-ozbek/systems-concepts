@@ -18,7 +18,7 @@ docker compose up --build -d
 
 Open **http://localhost:8080**. Stop with `docker compose down`.
 
-The multi-stage Dockerfile builds the TypeScript/Vite application and serves the static output using Nginx. No backend, account, API key, or database is needed. Port 8080 is configurable in `compose.yaml`.
+The multi-stage Dockerfile builds the TypeScript/Vite application and serves the static output using Nginx. The experimental C++ Lab adds an isolated compile-only service; no account, API key, or database is needed. Port 8080 is configurable in `compose.yaml`.
 
 The VPS deployment at [systems.pixelware.nl](https://systems.pixelware.nl) uses a separate shared Caddy stack for HTTPS. See [VPS deployment and HTTPS](DEPLOYMENT.md) and the [migration report](deploy/VPS-MIGRATION-REPORT.md). The standalone `compose.vps.yaml` connects the app to the proxy network without publishing another host port.
 
@@ -38,6 +38,10 @@ npm test
 npm run build
 npm run preview
 ```
+
+## Experimental C++ mode
+
+Choose **C++ Lab** in the header to edit C++20, compile it with Clang, and replay statement checkpoints beside the motherboard. Variables, numeric arrays/vectors, input, output, and exit status come from the compiled WebAssembly run. Hardware routes remain illustrative. See [C++ Lab](CPP-LAB.md) for the supported scope and isolation design. For Vite development, keep Docker running so the API proxy can reach the compiler.
 
 ## Explore
 

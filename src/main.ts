@@ -1,4 +1,6 @@
 import './style.css';
+import './lab.css';
+import { CppLab } from './lab';
 import { layout } from './layout';
 import { architectures, lessons, type Architecture, type Lesson, type Step } from './lessons';
 import { HardwareScene, nodeInfo } from './scene';
@@ -28,6 +30,7 @@ let touring=false;
 try{completed=new Set(JSON.parse(localStorage.getItem('hood-completed')??'[]'));}catch{/* Storage is optional. */}
 const playback=new Playback();if(matchMedia('(prefers-reduced-motion: reduce)').matches)playback.playing=false;
 let scene:HardwareScene|null=null;let inspected:string|null=null;
+let lab:CppLab|null=null;
 
 $('#app').innerHTML=layout(icon, Object.entries(architectures).map(([id,a])=>`<option value="${id}">${a.name}</option>`).join(''));
 function setWalkthroughOpen(open:boolean){
@@ -51,6 +54,8 @@ function renderNav(query=''){
   $('#completed-count').textContent=`${completed.size} explored`;$('#course-fill').style.width=`${completed.size/lessons.length*100}%`;
 }
 function setLesson(id:string,updateHash=true,preserveTour=false){
+  if(id==='cpp-lab'&&lab){lab.open();return;}
+  lab?.close();
   if(touring&&!preserveTour){touring=false;playback.loop=true;$<HTMLInputElement>('#repeat').checked=true;syncTour();}
   lesson=lessons.find(l=>l.id===id)??lessons[0];variant=0;inspected=null;
   if(lesson.id==='numa'){arch='numa';$<HTMLSelectElement>('#architecture').value=arch;scene?.setArchitecture(arch);}
@@ -147,7 +152,7 @@ $('#next-step').addEventListener('click',()=>{playback.playing=false;playback.ne
 $('#speed').addEventListener('change',()=>{playback.speed=Number($<HTMLSelectElement>('#speed').value);});
 $('#repeat').addEventListener('change',()=>{playback.loop=$<HTMLInputElement>('#repeat').checked;if(playback.loop){touring=false;syncTour();}});
 $('#architecture').addEventListener('change',()=>{arch=$<HTMLSelectElement>('#architecture').value as Architecture;scene?.setArchitecture(arch);steps=lesson.steps(variant,arch);playback.reset();$('#arch-badge').textContent=architectures[arch].short;renderTab();renderSteps();updateStep();});
-$('#explode').addEventListener('click',()=>{if(scene){scene.setExploded(!scene.exploded);$('#explode').setAttribute('aria-pressed',String(scene.exploded));scene.setStep(steps[playback.index]);}});
+$('#explode').addEventListener('click',()=>{if(scene){scene.setExploded(!scene.exploded);$('#explode').setAttribute('aria-pressed',String(scene.exploded));scene.setStep(lab?.active?lab.step:steps[playback.index]);}});
 $('#top-view').addEventListener('click',()=>{scene?.topView();$('#top-view').setAttribute('aria-pressed',String(scene?.top));});
 $('#reset-camera').addEventListener('click',()=>{scene?.resetCamera();$('#top-view').setAttribute('aria-pressed','false');});
 $('#focus-cpu').addEventListener('click',()=>{scene?.focusCPU();$('#top-view').setAttribute('aria-pressed','false');});
@@ -171,6 +176,7 @@ $('#sidebar-close').addEventListener('click',closeSidebar);
 window.addEventListener('hashchange',()=>setLesson(location.hash.slice(1),false));
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closeSidebar();setFocusMode(false);}
+  if(lab?.active)return;
   if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes((e.target as HTMLElement).tagName)||$<HTMLDialogElement>('#guide-dialog').open)return;
   if(e.code==='Space'){e.preventDefault();$('#play').click();}
   if(e.key==='ArrowRight'){e.preventDefault();$('#next-step').click();}if(e.key==='ArrowLeft'){e.preventDefault();$('#prev-step').click();}
@@ -180,6 +186,7 @@ window.addEventListener('keydown',e=>{
 
 try{
   scene=new HardwareScene($('#canvas-container'),id=>{
+    if(lab?.active)return;
     setFocusMode(false);setWalkthroughOpen(true);
     inspected=id;playback.playing=false;syncPlay();
     $('#signal-label').textContent='COMPONENT INSPECTOR';$('#step-detail').textContent=nodeInfo[id].detail;$('#value-chip').textContent=nodeInfo[id].name;
@@ -188,17 +195,26 @@ try{
   console.warn('WebGL initialization unavailable',error);
   $('#canvas-container').innerHTML=`<div class="webgl-fallback">${icon('cpu')}<h2>Explore the hardware step by step.</h2><p>3D rendering is unavailable in this browser. The complete lesson sequence, data, and controls still work.</p><div class="fallback-path">Registers → L1 → L2 → L3 → DRAM</div></div>`;
 }
-setLesson(location.hash.slice(1)||'load',false);
+lab=new CppLab(step=>scene?.setStep(step),()=>{
+  playback.playing=false;touring=false;syncTour();closeSidebar();setFocusMode(false);
+  $('#breadcrumb').textContent='Experimental workspace';$('#open-cpp-lab').innerHTML='Back to lessons';
+  $<HTMLSelectElement>('#architecture').disabled=true;scene?.resetCamera();
+},()=>{$('#open-cpp-lab').innerHTML='C++ Lab <span>Experimental</span>';});
+$('#open-cpp-lab').addEventListener('click',()=>{if(lab?.active)setLesson(lesson.id);else lab?.open();});
+const initialLesson=location.hash.slice(1)||'load';
+setLesson(initialLesson==='cpp-lab'?'load':initialLesson,false);
+if(initialLesson==='cpp-lab')lab.open();
 let last=performance.now();
 function frame(now:number){
   const delta=Math.min((now-last)/1000,.1);last=now;
-  if(playback.tick(delta,steps.length)){inspected=null;updateStep();}
+  if(!lab?.active&&playback.tick(delta,steps.length)){inspected=null;updateStep();}
+  lab?.tick(delta);
   if(touring&&!playback.playing&&playback.progress>=1){
     const next=lessons.indexOf(lesson)+1;
     if(next<lessons.length){setLesson(lessons[next].id,true,true);playback.playing=true;syncPlay();}
     else{touring=false;syncTour();}
   }
-  scene?.render(now/1000,playback.progress);
+  scene?.render(now/1000,lab?.active?lab.progress:playback.progress);
   const fill=document.querySelector<HTMLElement>(`#timeline [data-step="${playback.index}"] span`);if(fill)fill.style.width=`${playback.progress*100}%`;
   requestAnimationFrame(frame);
 }requestAnimationFrame(frame);
