@@ -1,0 +1,14 @@
+# Standalone production file; do not merge with compose.yaml (which publishes 8080).
+services:
+  systems-lab:
+    build: .
+    restart: unless-stopped
+    networks:
+      proxy:
+        aliases:
+          - systems-concepts-web
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to the existing NGINX Docker network}
