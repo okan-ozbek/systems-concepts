@@ -3,6 +3,11 @@ services:
   systems-lab:
     build: .
     restart: unless-stopped
+    environment:
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-reverse-proxy-caddy-1}
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
     networks:
       proxy:
         aliases:
@@ -14,6 +19,10 @@ services:
       context: .
       dockerfile: compiler/Dockerfile
     restart: unless-stopped
+    init: true
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
     read_only: true
     tmpfs:
       - /tmp:size=96m,mode=1777,noexec,nosuid

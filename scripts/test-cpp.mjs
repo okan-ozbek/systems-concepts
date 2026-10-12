@@ -23,7 +23,7 @@ try:
  r=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:9000/compile',data=data,headers={'Content-Type':'application/json'}),timeout=45)
 except urllib.error.HTTPError as e:
  r=e
-print(json.dumps({'status':r.code,'payload':json.loads(r.read())}))`;
+print(json.dumps({'status':r.code,'cache':r.headers.get('X-Compile-Cache'),'payload':json.loads(r.read())}))`;
     return new Promise((resolve,reject)=>{
       const child=spawn('docker',['compose','exec','-T','cpp-compiler','python3','-c',client]);let stdout='',stderr='';
       child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
@@ -32,7 +32,7 @@ print(json.dumps({'status':r.code,'payload':json.loads(r.read())}))`;
     });
   }
   const response=await fetch(`${base}/api/cpp/compile`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})});
-  return {status:response.status,payload:await response.json()};
+  return {status:response.status,cache:response.headers.get('X-Compile-Cache'),payload:await response.json()};
 }
 async function execute(source,stdin=''){
   const {status,payload}=await compile(source);assert.equal(status,200,payload.error);
@@ -47,6 +47,15 @@ async function execute(source,stdin=''){
 const values=(result,name)=>result.moments.flatMap(m=>m.variables.filter(v=>v.name===name).map(v=>v.values));
 let count=0;
 async function test(name,fn){await fn();count++;console.log(`PASS ${name}`);}
+await test('real compilation cache reuses identical code and retains source checkpoints without DWARF',async()=>{
+  const source='int main(){\n int value=47;\n return value;\n}\n// cache regression';
+  const first=await compile(source);const second=await compile(source);
+  assert.equal(first.status,200,first.payload.error);assert.equal(second.status,200,second.payload.error);
+  assert.equal(second.cache,'HIT');assert.deepEqual(first.payload,second.payload);
+  const module=await WebAssembly.compile(Buffer.from(first.payload.wasm,'base64'));
+  assert.equal(WebAssembly.Module.customSections(module,'.debug_info').length,0);
+  assert.ok(first.payload.checkpoints>0);
+});
 await test('arithmetic, source line, stdout and exit status',async()=>{
   const result=await execute('#include <iostream>\nint main() {\n int a=7;\n int b=5;\n int sum=a+b;\n sum*=2;\n std::cout << sum << "\\n";\n return 0;\n}');
   assert.equal(result.error,undefined);assert.equal(result.exitCode,0);assert.equal(result.output,'24\n');

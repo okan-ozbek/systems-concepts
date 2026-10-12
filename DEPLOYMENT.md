@@ -17,6 +17,7 @@ On the VPS, this project's `.env` contains:
 COMPOSE_FILE=compose.vps.yaml
 COMPOSE_PROJECT_NAME=systems-concepts
 PROXY_NETWORK=pixelware-proxy
+TRUSTED_PROXY=reverse-proxy-caddy-1
 ```
 
 The same settings are supplied in `.env.vps.example`. Use that file as `.env` on the VPS. Local Docker startup uses the root `compose.yaml` and serves `http://localhost:8080`.
@@ -49,6 +50,74 @@ assets remain immutable; HTML revalidates so a fresh page receives the current
 asset and worker URLs. Rebuild the web container to apply these delivery changes.
 After a local build and Docker startup, `npm run test:delivery` checks the wire
 sizes, decompressed content, MIME types, compression negotiation, and caching.
+
+### Security and resource controls
+
+The app trusts forwarded client IPs only from `TRUSTED_PROXY`, defaulting to the
+shared Caddy container `reverse-proxy-caddy-1` on the VPS. Local startup trusts
+only loopback. If your proxy container has a different name, set its exact Docker
+DNS name in `.env`; do not use the whole shared network or `0.0.0.0/0`. The proxy
+must sanitize incoming forwarded headers (Caddy does this by default). NGINX
+resolves this trusted hostname on startup: after recreating Caddy, restart the
+app's web container to refresh the trusted IP. The configured proxy must be
+running and attached to `pixelware-proxy` before starting the web container.
+
+The compile endpoint accepts JSON POSTs only, limits each client to 6 requests
+per minute and the whole site to 30 per minute, with a burst of 6 each. It allows
+2 concurrent requests per client and 8 overall; the compiler itself still runs
+one compilation at a time and accepts at most 16 request threads. Header/body
+read timeouts, container limits, and whole-process-group cleanup bound stalled
+requests and compiler/linker processes. Rate limits include cache hits.
+
+Browser responses enforce a same-origin CSP (including workers), prohibit
+embedding, and restrict browser permissions. `wasm-unsafe-eval` permits the lab's
+WebAssembly; arbitrary JavaScript eval and inline scripts remain blocked. Inline
+styles are needed by the dynamic editor, tooltips, and resize controls.
+
+Successful compilation results use an in-memory LRU cache: maximum 32 entries,
+16 MiB, and 10 minutes per entry. Keys include the exact source, WASI SDK version,
+compiler flags, and instrumentation files. Failed compilations are not cached;
+restarts clear the cache. Compiled output omits unused DWARF debug sections while
+retaining the independent source-line checkpoints. Source and output are not
+written to request logs.
+
+Rendering stops submitting GPU frames when paused and settled, suspends the
+animation loop in hidden tabs, and reuses static shadows. Sustained slow frames
+reduce resolution/shadow size; sustained fast frames recover gradually.
+
+Both services rotate Docker logs (3 × 10 MB per service). On the VPS, inspect
+`sudo docker compose logs --since 1h cpp-compiler` for JSON status, cache, and
+duration records and `sudo docker compose logs --since 1h systems-lab` for NGINX
+429/408/413 rejections. `sudo docker stats --no-stream` shows CPU/memory pressure.
+These are local operational logs, not an external alerting service.
+
+To update after pulling these changes:
+
+```sh
+cd /var/www/cpp-systems-concepts
+sudo docker compose up --build -d
+sudo docker compose exec systems-lab nginx -t
+sudo docker compose ps
+```
+
+Periodically run `npm audit` and rebuild with `docker compose build --pull --no-cache`
+to pick up patched base-image packages, then `docker compose up -d`. Test in a
+local/staging stack before deploying dependency or SDK updates.
+
+Local verification:
+
+```sh
+npm test && npm run build
+docker compose up --build -d
+docker compose exec -T cpp-compiler python3 - < scripts/test-server.py
+CPP_LAB_DIRECT=1 npm run test:cpp
+npm run test:delivery
+```
+
+On PowerShell use `Get-Content -Raw scripts/test-server.py | docker compose exec
+-T cpp-compiler python3 -` and set `$env:CPP_LAB_DIRECT='1'` before the C++ tests.
+The delivery test deliberately exhausts the local compile rate burst; wait for
+its budget to recover before compiling interactively.
 
 Caddy runs independently and normally needs no changes when an app is updated. Its configuration, operational README, migration report, and rollback script are in `/var/www/reverse-proxy`. The existing external certificate volumes were preserved. Caddy obtained Let's Encrypt certificates for both systems hostnames and renews them automatically; no Certbot setup is needed here.
 
@@ -88,6 +157,7 @@ Copy this project onto the VPS, then run from the project directory. Replace `YO
 
 ```sh
 export PROXY_NETWORK=YOUR_EXISTING_PROXY_NETWORK
+export TRUSTED_PROXY=YOUR_EXISTING_PROXY_CONTAINER
 docker compose -p systems-concepts -f compose.vps.yaml up --build -d
 ```
 

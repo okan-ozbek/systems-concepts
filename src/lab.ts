@@ -231,7 +231,7 @@ export class CppLab {
   private togglePlay(){if(!this.result?.moments.length)return;if(this.index===this.result.moments.length-1){this.index=0;this.progress=0;this.showMoment();}this.playing=!this.playing;this.controls();}
   tick(delta:number){
     if(!this.active)return;const speed=Number(this.get<HTMLSelectElement>('#lab-speed').value);
-    if(this.playing){this.progress+=delta*speed/2.2;if(this.progress>=1){this.progress=0;if(this.index<(this.result?.moments.length??0)-1){this.index++;this.showMoment();}else{this.playing=false;this.controls();}}}else if(!this.reducedMotion)this.progress=(this.progress+delta/3)%1;
+    if(this.playing){this.progress+=delta*speed/2.2;if(this.progress>=1){this.progress=0;if(this.index<(this.result?.moments.length??0)-1){this.index++;this.showMoment();}else{this.playing=false;this.controls();}}}
   }
   private showMoment(){
     const moment=this.result?.moments[this.index];this.paint();this.controls();this.get('#lab-history-count').textContent=String(this.result?.moments.length??0);

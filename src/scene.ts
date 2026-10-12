@@ -6,6 +6,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { componentPorts, createTransferRoute, hardwareBounds } from './routing';
 import type { Architecture, NodeId, Step } from './lessons';
+import {RenderQuality,renderSettings} from './render-quality';
 
 export const nodeInfo:Record<NodeId,{name:string;detail:string}>={
   reg0:{name:'Core 0 registers',detail:'Operands currently available to core 0’s execution units. These are much smaller than a cache.'},
@@ -49,11 +50,16 @@ export class HardwareScene {
   private particles:THREE.Mesh[]=[];private curve:THREE.CurvePath<THREE.Vector3>|null=null;
   private flowColor:number=colors.request;private lastTime=0;
   private reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private quality=new RenderQuality(navigator.hardwareConcurrency<=4||innerWidth<768?'balanced':'high');
+  private sun:THREE.DirectionalLight;
+  private dirty=true;private hoverDirty=true;private lastProgress=NaN;private wasAnimating=false;
+  private arrowUp=new THREE.Vector3(0,1,0);
 
   constructor(private container:HTMLElement,private onSelect:(id:NodeId)=>void){
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,renderSettings[this.quality.tier].pixelRatio));
     this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate=false;this.renderer.shadowMap.needsUpdate=true;
     this.renderer.setClearColor(0x17181b,0);this.renderer.outputColorSpace=THREE.SRGBColorSpace;
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.25;
     this.renderer.domElement.setAttribute('aria-label','Interactive ATX motherboard. Left-drag to orbit, right-drag to move, scroll to zoom, hover to identify components, or click the CPU and memory units to inspect.');
@@ -63,8 +69,9 @@ export class HardwareScene {
     this.controls.maxPolarAngle=Math.PI/2.12;this.controls.enablePan=true;this.controls.screenSpacePanning=true;
     this.controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.PAN};
     this.scene.add(new THREE.HemisphereLight(0xe7eaf1,0x171922,2.4));
-    const sun=new THREE.DirectionalLight(0xf3f1ec,3.2);sun.position.set(-8,18,9);sun.castShadow=true;
-    sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-15;sun.shadow.camera.right=15;
+    const sun=this.sun=new THREE.DirectionalLight(0xf3f1ec,3.2);sun.position.set(-8,18,9);sun.castShadow=true;
+    const shadowSize=renderSettings[this.quality.tier].shadowSize;
+    sun.shadow.mapSize.set(shadowSize,shadowSize);sun.shadow.camera.left=-15;sun.shadow.camera.right=15;
     sun.shadow.camera.top=15;sun.shadow.camera.bottom=-15;sun.shadow.normalBias=.025;this.scene.add(sun);
     const rim=new THREE.DirectionalLight(0x95b7bc,2);rim.position.set(7,7,-9);this.scene.add(rim);
     const board=buildATXBoard(this.scene);this.nodes=board.nodes;this.pickable=board.pickable;this.remoteGroup=board.remote;
@@ -118,6 +125,7 @@ export class HardwareScene {
     }
     const down=new THREE.Vector2();const canvas=this.renderer.domElement;
     canvas.addEventListener('pointermove',e=>{
+      this.hoverDirty=true;this.dirty=true;
       this.pointerInside=e.pointerType!=='touch';this.pointerClient.set(e.clientX,e.clientY);
       const r=canvas.getBoundingClientRect();this.pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
       if(e.buttons){this.dragging=true;this.hideHover();}
@@ -125,12 +133,14 @@ export class HardwareScene {
     canvas.addEventListener('pointerleave',()=>{this.pointerInside=false;this.hideHover();});
     canvas.addEventListener('pointerdown',e=>{down.set(e.clientX,e.clientY);this.dragging=true;this.hideHover();});
     canvas.addEventListener('pointerup',e=>{
+      this.hoverDirty=true;this.dirty=true;
       this.dragging=false;if(e.button!==0||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return;
       const r=canvas.getBoundingClientRect();this.pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
       const hit=this.pick();const id=hit?.object.userData.node as NodeId|undefined;if(id)this.onSelect(id);
     });
     canvas.addEventListener('pointercancel',()=>{this.dragging=false;this.pointerInside=false;this.hideHover();});
     this.controls.addEventListener('start',()=>this.hideHover());
+    this.controls.addEventListener('change',()=>{this.dirty=true;this.hoverDirty=true;});
     new ResizeObserver(()=>this.resize()).observe(container);this.resize();
   }
   private pick():{object:THREE.Object3D;info:ComponentInfo}|null {
@@ -149,7 +159,7 @@ export class HardwareScene {
     }
     return null;
   }
-  private hideHover(){this.tooltip.hidden=true;this.hoverOutline.visible=false;this.hoverTarget=null;this.renderer.domElement.style.cursor='grab';}
+  private hideHover(){if(this.hoverOutline.visible)this.dirty=true;this.tooltip.hidden=true;this.hoverOutline.visible=false;this.hoverTarget=null;this.renderer.domElement.style.cursor='grab';}
   private updateHover(){
     if(!this.pointerInside||this.dragging){this.hideHover();return;}
     const hit=this.pick();if(!hit){this.hideHover();return;}
@@ -163,6 +173,7 @@ export class HardwareScene {
     this.tooltip.style.transform=`translate(${x}px,${Math.max(12,y)}px)`;
   }
   resize(){
+    this.dirty=true;this.hoverDirty=true;
     const {width,height}=this.container.getBoundingClientRect();if(!width||!height)return;
     const oldAspect=this.camera.aspect;this.camera.aspect=width/height;this.camera.updateProjectionMatrix();this.renderer.setSize(width,height);
     this.pathMaterial.resolution.set(width,height);
@@ -175,11 +186,13 @@ export class HardwareScene {
     }else if((oldAspect<.9)!==(this.camera.aspect<.9)||oldAspect===1)this.resetCamera();
   }
   setArchitecture(arch:Architecture){
+    this.dirty=true;this.renderer.shadowMap.needsUpdate=true;
     this.arch=arch;this.remoteGroup.visible=arch==='numa';
     this.accessibleComponents.querySelector<HTMLButtonElement>('[data-node="remote"]')!.hidden=arch!=='numa';
     this.hideHover();if(!this.closeView)this.resetCamera();
   }
   setExploded(enabled:boolean){
+    this.dirty=true;this.renderer.shadowMap.needsUpdate=true;
     this.exploded=enabled;this.hideHover();
     for(const [id,mesh] of this.nodes){
       const offset=enabled&&!['dram','remote','io'].includes(id)?(id==='l3'?.48:id.startsWith('l2')?.95:id.startsWith('l1')?1.45:1.95):0;
@@ -202,6 +215,7 @@ export class HardwareScene {
     else this.resetCamera();
   }
   setStep(step:Step){
+    this.dirty=true;
     this.active=step.route;this.flowColor=colors[step.signal??'request'];
     this.pathMaterial.color.setHex(this.flowColor);this.glowMaterial.color.setHex(this.flowColor);
     for(const p of this.particles)(p.material as THREE.MeshBasicMaterial).color.setHex(this.flowColor).lerp(new THREE.Color(0xffffff),.65);
@@ -219,12 +233,30 @@ export class HardwareScene {
     start.data.needsUpdate=true;this.pathGeometry.computeBoundingBox();this.pathGeometry.computeBoundingSphere();
     this.anchors.forEach((marker,i)=>{marker.visible=i<ports.length;if(ports[i]){marker.position.copy(ports[i]);(marker.material as THREE.MeshBasicMaterial).color.setHex(this.flowColor);}});
   }
-  render(time:number,progress:number){
-    const delta=this.lastTime?Math.min(.1,time-this.lastTime):0;this.lastTime=time;this.controls.update();let moving=false;
+  render(time:number,progress:number,animate=true){
+    const interval=this.lastTime?time-this.lastTime:0;
+    const delta=Math.min(.1,interval);this.lastTime=time;
+    if(animate&&this.wasAnimating){
+      if(this.quality.sample(interval)){
+        const settings=renderSettings[this.quality.tier];
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,settings.pixelRatio));
+        this.sun.shadow.map?.dispose();this.sun.shadow.map=null;
+        this.sun.shadow.mapSize.set(settings.shadowSize,settings.shadowSize);
+        this.renderer.shadowMap.needsUpdate=true;this.resize();
+      }
+    }else this.quality.resetSampling();
+    this.controls.update();
+    let moving=false;
     for(const [id,mesh] of this.nodes){
       const target=this.heights.get(id)!;
       if(Math.abs(target-mesh.position.y)>.001){mesh.position.y=THREE.MathUtils.damp(mesh.position.y,target,9,delta);moving=true;}
-      const active=this.active.includes(id);const pulse=this.reducedMotion?.3:.31+Math.sin(time*3)*.08;
+    }
+    const changed=progress!==this.lastProgress||animate!==this.wasAnimating;
+    this.lastProgress=progress;this.wasAnimating=animate;
+    if(!this.dirty&&!this.hoverDirty&&!moving&&!changed&&(!animate||this.reducedMotion))return;
+    this.dirty=false;
+    for(const [id,mesh] of this.nodes){
+      const active=this.active.includes(id);const pulse=this.reducedMotion||!animate?.3:.31+Math.sin(time*3)*.08;
       const mat=mesh.material as THREE.MeshStandardMaterial;mat.emissive.setHex(active?this.flowColor:0);mat.emissiveIntensity=active?.13:0;
       const outline=this.outlines.get(id)!;const lineMat=outline.material as THREE.LineBasicMaterial;
       lineMat.color.setHex(this.flowColor);lineMat.opacity=active&&id!=='dram'?pulse:0;
@@ -233,14 +265,14 @@ export class HardwareScene {
       material.emissive.setHex(this.flowColor);
       material.emissiveIntensity=this.active.includes('dram')?(this.reducedMotion?.15:.13+Math.sin(progress*Math.PI*2+i*.2)*.07):0;
     });
-    if(moving)this.updateRoute();
+    if(moving){this.updateRoute();this.renderer.shadowMap.needsUpdate=true;this.hoverDirty=true;}
     for(let i=0;i<this.particles.length;i++){
       const packet=Math.floor(i/8);const tail=i%8;const t=(progress+packet/3-tail*.012+1)%1;const p=this.particles[i];
-      if(this.curve){p.position.copy(this.curve.getPointAt(t));if(tail===0)p.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),this.curve.getTangentAt(t).normalize());}
+      if(this.curve){p.position.copy(this.curve.getPointAt(t));if(tail===0)p.quaternion.setFromUnitVectors(this.arrowUp,this.curve.getTangentAt(t).normalize());}
       p.scale.setScalar(tail===0?1.1:1-tail*.075);
       (p.material as THREE.MeshBasicMaterial).opacity=(1-tail/9)*Math.min(1,t*12,(1-t)*12);
     }
-    if(time-this.lastHover>.055){this.updateHover();this.lastHover=time;}
+    if(this.hoverDirty&&time-this.lastHover>.055){this.updateHover();this.lastHover=time;this.hoverDirty=false;}
     if(this.hoverTarget&&moving)this.hoverOutline.setFromObject(this.hoverTarget);
     this.renderer.render(this.scene,this.camera);
   }

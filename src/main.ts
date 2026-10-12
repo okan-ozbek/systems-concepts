@@ -227,7 +227,10 @@ const initialLesson=location.hash.slice(1)||'load';
 setLesson(initialLesson==='cpp-lab'?'load':initialLesson,false);
 if(initialLesson==='cpp-lab')openLab();
 let last=performance.now();
+let frameId=0;
+let lastFill='';
 function frame(now:number){
+  if(document.hidden){frameId=0;return;}
   const delta=Math.min((now-last)/1000,.1);last=now;
   if(!lab?.active&&playback.tick(delta,steps.length)){inspected=null;updateStep();}
   lab?.tick(delta);
@@ -236,7 +239,17 @@ function frame(now:number){
     if(next<lessons.length){setLesson(lessons[next].id,true,true);playback.playing=true;syncPlay();}
     else{touring=false;syncTour();}
   }
-  scene?.render(now/1000,lab?.active?lab.progress:playback.progress);
-  const fill=document.querySelector<HTMLElement>(`#timeline [data-step="${playback.index}"] span`);if(fill)fill.style.width=`${playback.progress*100}%`;
-  requestAnimationFrame(frame);
-}requestAnimationFrame(frame);
+  scene?.render(now/1000,lab?.active?lab.progress:playback.progress,lab?.active?lab.playing:playback.playing);
+  const width=`${playback.progress*100}%`;
+  const fillKey=`${playback.index}:${width}`;
+  if(!lab?.active&&fillKey!==lastFill){
+    const fill=document.querySelector<HTMLElement>(`#timeline [data-step="${playback.index}"] span`);if(fill)fill.style.width=width;
+    lastFill=fillKey;
+  }
+  frameId=requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){cancelAnimationFrame(frameId);frameId=0;}
+  else if(!frameId){last=performance.now();frameId=requestAnimationFrame(frame);}
+});
+if(!document.hidden)frameId=requestAnimationFrame(frame);
