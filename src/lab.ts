@@ -1,3 +1,4 @@
+import './lab.css';
 import type { LabResult } from './lab-types';
 import type { Step } from './lessons';
 import { cacheConfig, lineValues, modelTrace, type ModeledMoment } from './lab-cache';

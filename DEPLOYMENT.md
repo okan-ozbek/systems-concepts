@@ -28,14 +28,27 @@ To update this app:
 The experimental C++ Lab also adds a compile-only `cpp-compiler` service on a
 private internal Docker network. The web container exposes its bounded API
 through `/api/cpp/`; it compiles to WebAssembly, which executes in the visitor's
-browser. This mode is currently tested locally and has not been deployed to the
-VPS. See [the C++ Lab notes](CPP-LAB.md) before enabling it publicly. Updating with
+browser. See [the C++ Lab notes](CPP-LAB.md) for its execution limits. Updating with
 the new Compose file will build and start the compiler along with the web app.
 
 ```sh
 cd /var/www/cpp-systems-concepts
 sudo docker compose up --build -d
 ```
+
+The web build writes maximum-compression `.gz` versions of JavaScript, CSS,
+HTML, and SVG files. The bundled NGINX uses `gzip_static` to serve these when
+the browser accepts gzip, preserving the original files for other clients.
+`gzip_types` also enables compression for JavaScript, CSS, JSON, and SVG
+responses without a precompressed file. This setup uses gzip; the standard
+NGINX image does not include a Brotli module.
+
+The C++ IDE and its styles load when opened. Three.js is a separate hashed
+chunk so lesson/UI changes can reuse the browser's cached renderer. Hashed
+assets remain immutable; HTML revalidates so a fresh page receives the current
+asset and worker URLs. Rebuild the web container to apply these delivery changes.
+After a local build and Docker startup, `npm run test:delivery` checks the wire
+sizes, decompressed content, MIME types, compression negotiation, and caching.
 
 Caddy runs independently and normally needs no changes when an app is updated. Its configuration, operational README, migration report, and rollback script are in `/var/www/reverse-proxy`. The existing external certificate volumes were preserved. Caddy obtained Let's Encrypt certificates for both systems hostnames and renews them automatically; no Certbot setup is needed here.
 

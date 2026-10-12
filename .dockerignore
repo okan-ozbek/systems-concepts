@@ -4,3 +4,10 @@ dist
 *.log
 experiments.exe
 screenshots
+output
+coverage
+.vite
+.codex
+.agents
+.env
+.env.*

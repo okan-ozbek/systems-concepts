@@ -1,6 +1,5 @@
 import './style.css';
-import './lab.css';
-import { CppLab } from './lab';
+import type { CppLab } from './lab';
 import { layout } from './layout';
 import { architectures, lessons, type Architecture, type Lesson, type Step } from './lessons';
 import { HardwareScene, nodeInfo } from './scene';
@@ -31,6 +30,7 @@ try{completed=new Set(JSON.parse(localStorage.getItem('hood-completed')??'[]'));
 const playback=new Playback();if(matchMedia('(prefers-reduced-motion: reduce)').matches)playback.playing=false;
 let scene:HardwareScene|null=null;let inspected:string|null=null;
 let lab:CppLab|null=null;
+let labLoading:Promise<CppLab>|null=null;
 
 $('#app').innerHTML=layout(icon, Object.entries(architectures).map(([id,a])=>`<option value="${id}">${a.name}</option>`).join(''));
 function setWalkthroughOpen(open:boolean){
@@ -54,7 +54,7 @@ function renderNav(query=''){
   $('#completed-count').textContent=`${completed.size} explored`;$('#course-fill').style.width=`${completed.size/lessons.length*100}%`;
 }
 function setLesson(id:string,updateHash=true,preserveTour=false){
-  if(id==='cpp-lab'&&lab){lab.open();return;}
+  if(id==='cpp-lab'){openLab();return;}
   lab?.close();
   if(touring&&!preserveTour){touring=false;playback.loop=true;$<HTMLInputElement>('#repeat').checked=true;syncTour();}
   lesson=lessons.find(l=>l.id===id)??lessons[0];variant=0;inspected=null;
@@ -195,15 +195,37 @@ try{
   console.warn('WebGL initialization unavailable',error);
   $('#canvas-container').innerHTML=`<div class="webgl-fallback">${icon('cpu')}<h2>Explore the hardware step by step.</h2><p>3D rendering is unavailable in this browser. The complete lesson sequence, data, and controls still work.</p><div class="fallback-path">Registers → L1 → L2 → L3 → DRAM</div></div>`;
 }
-lab=new CppLab(step=>scene?.setStep(step),()=>{
-  playback.playing=false;touring=false;syncTour();closeSidebar();setFocusMode(false);
-  $('#breadcrumb').textContent='Experimental workspace';$('#open-cpp-lab').innerHTML='Back to lessons';
-  $<HTMLSelectElement>('#architecture').disabled=true;scene?.resetCamera();
-},()=>{$('#open-cpp-lab').innerHTML='C++ Lab <span>Experimental</span>';});
-$('#open-cpp-lab').addEventListener('click',()=>{if(lab?.active)setLesson(lesson.id);else lab?.open();});
+function loadLab():Promise<CppLab>{
+  if(lab)return Promise.resolve(lab);
+  return labLoading??=import('./lab').then(({CppLab})=>{
+    lab=new CppLab(step=>scene?.setStep(step),()=>{
+      playback.playing=false;touring=false;syncTour();closeSidebar();setFocusMode(false);
+      $('#breadcrumb').textContent='Experimental workspace';$('#open-cpp-lab').innerHTML='Back to lessons';
+      $<HTMLSelectElement>('#architecture').disabled=true;scene?.resetCamera();
+    },()=>{$('#open-cpp-lab').innerHTML='C++ Lab <span>Experimental</span>';});
+    return lab;
+  });
+}
+function openLab(){
+  history.replaceState(null,'','#cpp-lab');
+  const button=$<HTMLButtonElement>('#open-cpp-lab');
+  button.disabled=true;button.textContent='Opening C++ Lab…';
+  void loadLab().then(instance=>{
+    // A lesson selected while the module loads should keep that selection.
+    if(location.hash==='#cpp-lab')instance.open();
+  }).catch(error=>{
+    labLoading=null;
+    console.warn('C++ Lab could not be loaded',error);
+    button.title='Could not open the C++ Lab. Refresh the page or click to retry.';
+  }).finally(()=>{
+    button.disabled=false;
+    if(!lab?.active)button.innerHTML='C++ Lab <span>Experimental</span>';
+  });
+}
+$('#open-cpp-lab').addEventListener('click',()=>{if(lab?.active)setLesson(lesson.id);else openLab();});
 const initialLesson=location.hash.slice(1)||'load';
 setLesson(initialLesson==='cpp-lab'?'load':initialLesson,false);
-if(initialLesson==='cpp-lab')lab.open();
+if(initialLesson==='cpp-lab')openLab();
 let last=performance.now();
 function frame(now:number){
   const delta=Math.min((now-last)/1000,.1);last=now;
